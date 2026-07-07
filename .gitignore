@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.log
+
+# SQLite runtime data
+backend-python/data/*.db
+backend-python/data/*.db-journal
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
