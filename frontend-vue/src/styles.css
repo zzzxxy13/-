@@ -137,6 +137,7 @@ nav {
   grid-template-columns: minmax(320px, 420px) 1fr;
   gap: 20px;
   align-items: start;
+  margin-top: 0;
 }
 
 .detail {
@@ -220,3 +221,180 @@ pre {
   }
 }
 
+/* 顶部横向导航 */
+.top-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(238, 243, 255, 0.12);
+}
+.top-nav button {
+  padding: 10px 22px;
+  font-size: 15px;
+}
+
+/* 梦境页面卡片通用美化 */
+.dream-card {
+  border-radius: 12px !important;
+  box-shadow: 0 4px 20px rgba(116, 118, 255, 0.08);
+  transition: all 0.3s ease;
+}
+.dream-card:hover {
+  box-shadow: 0 8px 30px rgba(116, 118, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* 梦境列表hover动效 */
+.dream-item-hover {
+  transition: all 0.25s ease;
+  border-radius: 6px;
+  padding-inline: 10px;
+}
+.dream-item-hover:hover {
+  background: rgba(143, 179, 255, 0.08);
+  transform: translateX(4px);
+}
+
+/* 星级标签美化 */
+.star-tag {
+  padding: 4px 10px;
+  background: rgba(143, 179, 255, 0.12);
+  border-radius: 20px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* 详情文本行高优化 */
+.detail-content {
+  font-size: 15px;
+  line-height: 1.8;
+  margin: 12px 0 20px;
+}
+
+/* 下拉星级选择美化 */
+.star-select {
+  flex: 1;
+}
+
+/* 梦境页面整体间距 */
+.dream-page-wrap {
+  gap: 24px !important;
+}
+.mood-tag {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.08);
+}
+/* 社区外层容器 */
+/* 梦境社区总容器 */
+.community-wrap {
+  width: 100%;
+}
+.community-wrap .section-title .eyebrow {
+  color: #a894ff;
+  font-size: 14px;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.community-wrap .section-title h2 {
+  font-size: 36px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0 0 24px 0;
+}
+
+/* 社区卡片流式布局 */
+.community-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+  gap: 20px;
+}
+
+/* 气泡卡片基础：蓝紫渐变实底、不透明、永久带边框 */
+.community-bubble {
+  border-radius: 16px;
+  padding: 28px;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* 蓝紫渐变纯色底，完全不透明 */
+  background: linear-gradient(135deg, #5b2c91 0%, #311b60 48%, #1e1035 100%);
+  /* 永久保留白色细边框 */
+  border: 1px solid rgba(190, 160, 255, 0.22);
+}
+
+/* 鼠标悬浮效果：只提亮、上浮，不变透明，边框保留 */
+.community-bubble:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(130, 110, 230, 0.18);
+  border-color: rgba(210, 180, 255, 0.35);
+  filter: brightness(1.08);
+}
+
+/* 卡片顶部：发布者+标题 */
+.bubble-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+/* 匿名用户文字颜色 */
+.community-bubble.anon-share .nick {
+  color: #d1c0ff;
+  font-weight: 500;
+}
+/* 实名用户文字颜色区分 */
+.community-bubble.real-share .nick {
+  color: #98f0dd;
+  font-weight: 500;
+}
+.bubble-top h3 {
+  margin: 0;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* 梦境正文 */
+.bubble-content p {
+  margin: 0;
+  line-height: 1.75;
+  color: #e9e4ff;
+  font-size: 16px;
+}
+
+/* 底部情绪标签+撤回按钮 */
+.bubble-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.mood-tag {
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+.revoke-btn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 120, 140, 0.22);
+  color: #ffd0d8;
+  cursor: pointer;
+  font-size: 13px;
+}
+.revoke-btn:hover {
+  background: rgba(255, 120, 140, 0.32);
+}
+
+/* 手机自适应单列 */
+@media (max-width: 900px) {
+  .community-list {
+    grid-template-columns: 1fr;
+  }
+}
