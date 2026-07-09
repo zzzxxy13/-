@@ -2,6 +2,7 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "dream_archive.db"
@@ -18,8 +19,20 @@ def password_hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _ensure_schema_migrations(conn: sqlite3.Connection):
+    # Backward compatible migration for old sqlite files.
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(dream_records)").fetchall()]
+    if "anonymous_name" not in cols:
+        conn.execute("ALTER TABLE dream_records ADD COLUMN anonymous_name TEXT")
+    if "deleted_by_admin" not in cols:
+        conn.execute("ALTER TABLE dream_records ADD COLUMN deleted_by_admin INTEGER NOT NULL DEFAULT 0")
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE dream_records ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP")
+
+
 def init_db(seed: bool = False):
     with get_conn() as conn:
+        _ensure_schema_migrations(conn)
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -69,6 +82,27 @@ def init_db(seed: bool = False):
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               word TEXT NOT NULL UNIQUE,
               level TEXT NOT NULL DEFAULT 'HIGH'
+            );
+
+            CREATE TABLE IF NOT EXISTS dream_comments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              dream_id INTEGER NOT NULL,
+              user_id INTEGER NOT NULL,
+              content TEXT NOT NULL,
+              is_deleted INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(dream_id) REFERENCES dream_records(id),
+              FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS dream_likes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              dream_id INTEGER NOT NULL,
+              user_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(dream_id, user_id),
+              FOREIGN KEY(dream_id) REFERENCES dream_records(id),
+              FOREIGN KEY(user_id) REFERENCES users(id)
             );
             """
         )

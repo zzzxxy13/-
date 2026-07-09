@@ -1,10 +1,21 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from .analysis_skill import analyze_dream, detect_risk
 from .auth import make_token, parse_token, require_admin
 from .database import get_conn, init_db, password_hash
-from .schemas import AnalysisResponse, AuthRequest, AuthResponse, DreamRequest, DreamResponse
+from .schemas import (
+    AnalysisResponse,
+    AuthRequest,
+    AuthResponse,
+    CommentCreate,
+    CommentResponse,
+    DreamRequest,
+    DreamResponse,
+    LikeResponse,
+    ShareRequest,
+)
 
 app = FastAPI(title="梦境馆 Python API")
 
@@ -22,6 +33,14 @@ def startup():
     init_db(seed=True)
 
 
+class LikeRequest(BaseModel):
+    isLiked: bool = True
+
+
+def _row_has(row, field: str, default):
+    return row[field] if field in row.keys() else default
+
+
 def dream_row_to_response(row) -> DreamResponse:
     return DreamResponse(
         id=row["id"],
@@ -29,8 +48,13 @@ def dream_row_to_response(row) -> DreamResponse:
         content=row["content"],
         dreamDate=row["dream_date"],
         moodScore=row["mood_score"],
+        ownerId=row["user_id"],
         isPublic=bool(row["is_public"]),
+        username=row["username"] if "username" in row.keys() else None,
         auditStatus=row["audit_status"],
+        likes=row["likes"] if "likes" in row.keys() else _row_has(row, "likes_count", 0),
+        comments=row["comments"] if "comments" in row.keys() else _row_has(row, "comments_count", 0),
+        isAnonymous=bool(_row_has(row, "anonymous_name", False)),
         anonymousName=row["anonymous_name"],
     )
 
@@ -43,6 +67,15 @@ def require_owner_dream(user_id: int, dream_id: int):
     if row["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="无权访问该梦境")
     return row
+
+
+def get_current_user_optional(authorization: str | None = Header(default=None)):
+    if not authorization:
+        return None
+    try:
+        return parse_token(authorization)
+    except HTTPException:
+        return None
 
 
 @app.post("/api/auth/register", response_model=AuthResponse)
@@ -92,7 +125,9 @@ def list_my_dreams(user=Depends(parse_token)):
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT * FROM dream_records
+            SELECT dr.*, u.username
+              FROM dream_records dr
+              JOIN users u ON u.id = dr.user_id
             WHERE user_id = ?
             ORDER BY dream_date DESC, created_at DESC
             """,
@@ -147,7 +182,7 @@ def analyze(dream_id: int, user=Depends(parse_token)):
                 result["aiResult"],
                 result["riskLevel"],
             ),
-        )
+    )
     return AnalysisResponse(**result)
 
 
@@ -176,10 +211,10 @@ def latest_analysis(dream_id: int, user=Depends(parse_token)):
 
 
 @app.post("/api/dreams/{dream_id}/share", response_model=DreamResponse)
-def share_dream(dream_id: int, user=Depends(parse_token)):
+def share_dream(dream_id: int, payload: ShareRequest, user=Depends(parse_token)):
     dream = require_owner_dream(user["id"], dream_id)
     status = "PENDING" if detect_risk(dream["content"]) else "PUBLISHED"
-    anonymous_name = f"梦游者{1000 + dream_id}"
+    anonymous_name = f"梦游者{1000 + dream_id}" if payload.isAnonymous else None
     with get_conn() as conn:
         conn.execute(
             """
@@ -194,14 +229,32 @@ def share_dream(dream_id: int, user=Depends(parse_token)):
 
 
 @app.get("/api/community/dreams", response_model=list[DreamResponse])
-def community_dreams():
+def community_dreams(
+    user=Depends(get_current_user_optional),
+):
+    uid = user["id"] if user else None
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT * FROM dream_records
-            WHERE is_public = 1 AND audit_status = 'PUBLISHED' AND deleted_by_admin = 0
-            ORDER BY created_at DESC
-            """
+            SELECT
+              dr.id, dr.user_id, dr.title, dr.content, dr.mood_score, dr.dream_date, dr.is_public, dr.audit_status, dr.anonymous_name, dr.created_at,
+              u.username,
+              COALESCE(lc.cnt, 0) AS likes,
+              COALESCE(cm.cnt, 0) AS comments,
+              CASE WHEN ul.id IS NOT NULL THEN 1 ELSE 0 END AS isLiked
+            FROM dream_records dr
+            LEFT JOIN users u ON u.id = dr.user_id
+            LEFT JOIN (
+              SELECT dream_id, COUNT(*) AS cnt FROM dream_likes GROUP BY dream_id
+            ) lc ON lc.dream_id = dr.id
+            LEFT JOIN (
+              SELECT dream_id, COUNT(*) AS cnt FROM dream_comments WHERE is_deleted = 0 GROUP BY dream_id
+            ) cm ON cm.dream_id = dr.id
+            LEFT JOIN dream_likes ul ON ul.dream_id = dr.id AND ul.user_id = ?
+            WHERE dr.is_public = 1 AND dr.audit_status = 'PUBLISHED' AND dr.deleted_by_admin = 0
+            ORDER BY dr.created_at DESC
+            """,
+            (uid,),
         ).fetchall()
     return [dream_row_to_response(row) for row in rows]
 
@@ -218,7 +271,132 @@ def community_detail(dream_id: int):
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="该梦境未公开")
-    return dream_row_to_response(row)
+    return DreamResponse(
+        id=row["id"],
+        title=row["title"],
+        content=row["content"],
+        dreamDate=row["dream_date"],
+        moodScore=row["mood_score"],
+        ownerId=row["user_id"],
+        isPublic=bool(row["is_public"]),
+        username=None,
+        auditStatus=row["audit_status"],
+        likes=0,
+        comments=0,
+        isAnonymous=bool(row["anonymous_name"]),
+        anonymousName=row["anonymous_name"],
+    )
+
+
+@app.get("/api/community/dreams/{dream_id}/comments", response_model=list[CommentResponse])
+def list_comments(dream_id: int):
+    with get_conn() as conn:
+        dream = conn.execute("SELECT id FROM dream_records WHERE id = ?", (dream_id,)).fetchone()
+        if not dream:
+            raise HTTPException(status_code=404, detail="该梦境不存在")
+        rows = conn.execute(
+            """
+            SELECT dc.id, dc.dream_id, u.username, dc.content, dc.created_at
+            FROM dream_comments dc
+            LEFT JOIN users u ON u.id = dc.user_id
+            WHERE dc.dream_id = ? AND dc.is_deleted = 0
+            ORDER BY dc.created_at DESC
+            """,
+            (dream_id,),
+        ).fetchall()
+    return [
+        CommentResponse(
+            id=row["id"],
+            dreamId=row["dream_id"],
+            username=row["username"] or "匿名用户",
+            content=row["content"],
+            createdAt=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+@app.post("/api/community/dreams/{dream_id}/comments", response_model=CommentResponse)
+def create_comment(dream_id: int, payload: CommentCreate, user=Depends(parse_token)):
+    if len(payload.content.strip()) == 0:
+        raise HTTPException(status_code=400, detail="评论内容不能为空")
+    with get_conn() as conn:
+        dream = conn.execute("SELECT is_public, deleted_by_admin FROM dream_records WHERE id = ?", (dream_id,)).fetchone()
+        if not dream or not dream["is_public"] or dream["deleted_by_admin"]:
+            raise HTTPException(status_code=404, detail="该梦境不可评论")
+        cursor = conn.execute(
+            "INSERT INTO dream_comments(dream_id, user_id, content) VALUES (?, ?, ?)",
+            (dream_id, user["id"], payload.content.strip()),
+        )
+        row = conn.execute(
+            """
+            SELECT dc.id, dc.dream_id, u.username, dc.content, dc.created_at
+            FROM dream_comments dc
+            JOIN users u ON u.id = dc.user_id
+            WHERE dc.id = ?
+            """,
+            (cursor.lastrowid,),
+        ).fetchone()
+    return CommentResponse(
+        id=row["id"],
+        dreamId=row["dream_id"],
+        username=row["username"] or "匿名用户",
+        content=row["content"],
+        createdAt=row["created_at"],
+    )
+
+
+@app.delete("/api/admin/comments/{comment_id}")
+def admin_delete_comment(comment_id: int, user=Depends(parse_token)):
+    require_admin(user)
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM dream_comments WHERE id = ?", (comment_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="评论不存在")
+        conn.execute("UPDATE dream_comments SET is_deleted = 1 WHERE id = ?", (comment_id,))
+    return {"message": "评论已删除"}
+
+
+@app.post("/api/community/dreams/{dream_id}/like", response_model=LikeResponse)
+def toggle_like(dream_id: int, payload: LikeRequest, user=Depends(parse_token)):
+    with get_conn() as conn:
+        dream = conn.execute("SELECT id FROM dream_records WHERE id = ?", (dream_id,)).fetchone()
+        if not dream:
+            raise HTTPException(status_code=404, detail="梦境不存在")
+        if payload.isLiked:
+            conn.execute(
+                "INSERT OR IGNORE INTO dream_likes(dream_id, user_id) VALUES (?, ?)",
+                (dream_id, user["id"]),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM dream_likes WHERE dream_id = ? AND user_id = ?",
+                (dream_id, user["id"]),
+            )
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM dream_likes WHERE dream_id = ?", (dream_id,)
+        ).fetchone()["c"]
+        liked = (
+            conn.execute(
+                "SELECT id FROM dream_likes WHERE dream_id = ? AND user_id = ?",
+                (dream_id, user["id"]),
+            ).fetchone()
+            is not None
+        )
+    return LikeResponse(likes=count, isLiked=bool(liked))
+
+
+@app.delete("/api/community/dreams/{dream_id}")
+def hide_from_community(dream_id: int, user=Depends(parse_token)):
+    with get_conn() as conn:
+        dream = conn.execute("SELECT * FROM dream_records WHERE id = ?", (dream_id,)).fetchone()
+        if not dream or dream["user_id"] != user["id"]:
+            raise HTTPException(status_code=404, detail="梦境不存在")
+        conn.execute(
+            "UPDATE dream_records SET is_public = 0, audit_status = 'PRIVATE' WHERE id = ?",
+            (dream_id,),
+        )
+    return {"message": "已取消分享"}
 
 
 @app.get("/api/admin/community/dreams", response_model=list[DreamResponse])

@@ -129,17 +129,29 @@
                 <h2>{{ selected.title }}</h2>
               </div>
               <p class="detail-content">{{ selected.content }}</p>
-              <div class="actions">
-                <button class="primary" @click="analyzeDream(selected.id)">深度分析梦境</button>
-                <button class="secondary" @click="shareDreamRealName(selected.id)">实名分享</button>
-                <button class="secondary" @click="shareDream(selected.id)">匿名分享</button>
-                <button class="danger" @click="deleteSingleDream(selected.id)">删除梦境</button>
-              </div>
-              <section v-if="analysis" class="analysis-box">
-                <strong class="keyword-highlight">命中关键词：{{ analysis.matchedKeywords || '暂无命中' }}</strong>
-                <p class="analysis-text">{{ analysis.ruleBasedResult }}</p>
-                <pre>{{ formatJson(analysis.aiResult) }}</pre>
-              </section>
+                <div class="actions">
+                  <button class="primary" :disabled="analysisRunning" @click="analyzeDream(selected.id)">
+                    {{ analysisRunning ? '分析中...' : '深度分析梦境' }}
+                  </button>
+                  <button class="secondary" @click="shareDreamRealName(selected.id)">实名分享</button>
+                  <button class="secondary" @click="shareDream(selected.id)">匿名分享</button>
+                  <button class="danger" @click="deleteSingleDream(selected.id)">删除梦境</button>
+                </div>
+                <div v-if="analysisRunning" class="analysis-status-bar">
+                  <div class="analysis-status-text">{{ analysisStatusMessage }}</div>
+                  <div class="analysis-status-track">
+                    <div class="analysis-status-progress" :style="{ width: analysisProgress }"></div>
+                  </div>
+                </div>
+                <section v-if="analysis" class="analysis-box">
+                  <strong class="keyword-highlight">命中关键词：{{ analysis.matchedKeywords || '暂无命中' }}</strong>
+                  <p class="analysis-text">{{ analysis.ruleBasedResult }}</p>
+                  <div class="analysis-text analysis-ai">
+                    <template v-for="(line, idx) in analysisTextLines" :key="`${line}-${idx}`">
+                      <p>{{ line }}</p>
+                    </template>
+                  </div>
+                </section>
             </div>
           </section>
 
@@ -166,7 +178,7 @@
                     <span class="icon">✨</span> 共鸣 ({{ dream.likes || 0 }})
                   </button>
                   <button class="icon-btn" @click="dream.showComments = !dream.showComments">
-                    <span class="icon">💬</span> 留言 ({{ dream.comments?.length || 0 }})
+                    <span class="icon">💬</span> 留言 ({{ dream.commentCount || dream.comments?.length || 0 }})
                   </button>
                   <span class="mood-tag" style="margin-left: auto;">
                     {{ dream.moodScore >=4 ? '😊' : dream.moodScore ===3 ? '😐' : '😢' }}
@@ -232,29 +244,37 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import api from './api'
 
-// UI 与 视图状态
 const stage = ref('cover')
 const user = ref(JSON.parse(localStorage.getItem('dream_user') || 'null'))
 const view = ref('dreams')
 const message = ref('')
-const isError = ref(false) 
+const isError = ref(false)
 const isAdminMode = ref(false)
 
-// 数据集
 const dreams = ref([])
 const communityDreams = ref([])
 const adminDreams = ref([])
 const selected = ref(null)
 const analysis = ref(null)
-const today = new Date().toISOString().slice(0, 10)
+const analysisRunning = ref(false)
+const analysisStatusMessage = ref('')
+const analysisStatusProgress = ref(0)
 
+const today = new Date().toISOString().slice(0, 10)
 const auth = reactive({ username: '', password: '' })
 const form = reactive({ title: '', content: '', dreamDate: today, moodScore: 'neutral' })
 
+const analysisProgress = computed(() => `${analysisStatusProgress.value}%`)
+const analysisTextLines = computed(() => {
+  const raw = analysis.value?.aiResult || ''
+  return typeof raw === 'string' ? raw.split('\n').map((item) => item.trim()).filter(Boolean) : []
+})
+
 onMounted(() => { if (user.value) loadDreams() })
+
 function enterApp() { stage.value = 'app' }
 
 function handleAdminToggle() {
@@ -265,39 +285,37 @@ function handleAdminToggle() {
 }
 
 function showError(msg) {
-  message.value = msg;
-  isError.value = true;
-  setTimeout(() => isError.value = false, 500);
+  message.value = msg
+  isError.value = true
+  setTimeout(() => isError.value = false, 500)
 }
 
-// 登录模块：精准区分密码错、未注册状态
 async function login() {
-  if (!auth.username || !auth.password) return showError("请输入用户名和密码"); 
+  if (!auth.username || !auth.password) return showError('请输入用户名和密码')
   try {
     const { data } = await api.post('/auth/login', auth)
     setUser(data)
     if (data.role === 'ADMIN') openAdmin()
   } catch (err) {
-    const status = err.response?.status;
-    const errorMsg = (err.response?.data?.msg || err.response?.data?.detail || '').toLowerCase();
-    
+    const status = err.response?.status
+    const errorMsg = (err.response?.data?.msg || err.response?.data?.detail || '').toLowerCase()
     if (status === 404 || errorMsg.includes('not found') || errorMsg.includes('不存在') || errorMsg.includes('未注册')) {
-      showError('账号未注册，请先点击下方的"注册档案"');
+      showError('账号未注册，请先点击下方的“注册档案”')
     } else if (status === 401 || errorMsg.includes('password') || errorMsg.includes('密码') || errorMsg.includes('错误')) {
-      showError('密码错误，请重新输入');
+      showError('密码错误，请重新输入')
     } else {
-      showError('账号未注册或密码错误，新用户请先注册');
+      showError('账号未注册或密码错误，新用户请先注册')
     }
   }
 }
 
 async function register() {
-  if (!auth.username || !auth.password) return showError("请填写用户名和密码进行注册"); 
+  if (!auth.username || !auth.password) return showError('请填写用户名和密码进行注册')
   try {
     const { data } = await api.post('/auth/register', auth)
     setUser(data)
   } catch (err) {
-    showError('注册失败：' + (err.response?.data?.msg || '用户名可能已存在'));
+    showError('注册失败：' + (err.response?.data?.msg || '用户名可能已存在'))
   }
 }
 
@@ -310,16 +328,21 @@ function setUser(data) {
   loadDreams()
 }
 
-// 退出重置
 function logout() {
   localStorage.removeItem('dream_user')
   localStorage.removeItem('dream_token')
-  user.value = null; selected.value = null; analysis.value = null;
-  view.value = 'dreams'; stage.value = 'cover' 
+  user.value = null
+  selected.value = null
+  analysis.value = null
+  view.value = 'dreams'
+  stage.value = 'cover'
 }
 
-// 个人藏梦逻辑
-async function loadDreams() { const { data } = await api.get('/dreams'); dreams.value = data }
+async function loadDreams() {
+  const { data } = await api.get('/dreams')
+  dreams.value = data
+}
+
 async function saveDream() {
   try {
     if (!form.title.trim()) return showError('请填写梦境标题')
@@ -327,81 +350,161 @@ async function saveDream() {
     const moodMap = { positive: 5, neutral: 3, negative: 1 }
     await api.post('/dreams', { ...form, moodScore: moodMap[form.moodScore] })
     Object.assign(form, { title: '', content: '', dreamDate: today, moodScore: 'neutral' })
-    message.value = '梦境保存成功！'; isError.value = false;
+    message.value = '梦境保存成功！'
+    isError.value = false
     await loadDreams()
-  } catch (err) { showError('保存失败') }
+  } catch (err) {
+    showError('保存失败')
+  }
 }
 
 async function selectDream(dream) {
-  selected.value = dream; analysis.value = null;
-  try { const { data } = await api.get(`/dreams/${dream.id}/analysis`); analysis.value = data } catch {}
-}
-async function analyzeDream(id) { const { data } = await api.post(`/dreams/${id}/analyze`); analysis.value = data }
-async function shareDream(id) { await api.post(`/dreams/${id}/share`, { isAnonymous: true }); message.value = '已提交匿名分享'; await loadDreams() }
-async function shareDreamRealName(id) { await api.post(`/dreams/${id}/share`, { isAnonymous: false }); message.value = '已提交实名分享'; await loadDreams() }
-async function deleteSingleDream(id) {
-  if (!confirm('确定彻底删除这条记录吗？')) return;
-  try { await api.delete(`/dreams/${id}`); selected.value = null; await loadDreams() } catch {}
+  selected.value = dream
+  analysis.value = null
+  try {
+    const { data } = await api.get(`/dreams/${dream.id}/analysis`)
+    analysis.value = data
+  } catch {}
 }
 
-// 幻夜社区业务
+async function analyzeDream(id) {
+  analysisRunning.value = true
+  analysisStatusMessage.value = '正在提取关键词与语义摘要...'
+  analysisStatusProgress.value = 15
+  try {
+    const { data } = await api.post(`/dreams/${id}/analyze`)
+    analysis.value = data
+    analysisStatusMessage.value = '模型生成完成，正在整理呈现...'
+    analysisStatusProgress.value = 100
+  } catch (err) {
+    showError('深度分析失败，请稍后重试')
+  } finally {
+    setTimeout(() => {
+      analysisRunning.value = false
+      analysisStatusMessage.value = ''
+      analysisStatusProgress.value = 0
+    }, 800)
+  }
+}
+
+async function shareDream(id) {
+  await api.post(`/dreams/${id}/share`, { isAnonymous: true })
+  message.value = '已提交匿名分享'
+  await loadDreams()
+}
+
+async function shareDreamRealName(id) {
+  await api.post(`/dreams/${id}/share`, { isAnonymous: false })
+  message.value = '已提交实名分享'
+  await loadDreams()
+}
+
+async function deleteSingleDream(id) {
+  if (!confirm('确定彻底删除这条记录吗？')) return
+  try {
+    await api.delete(`/dreams/${id}`)
+    selected.value = null
+    await loadDreams()
+  } catch {}
+}
+
 async function openCommunity() {
   view.value = 'community'
   const { data } = await api.get('/community/dreams')
-  communityDreams.value = data.map(d => ({ ...d, showComments: false, newComment: '' }))
+  const enriched = await Promise.all(
+    data.map(async (d) => {
+      try {
+        const commentsRes = await api.get(`/community/dreams/${d.id}/comments`)
+        return {
+          ...d,
+          comments: commentsRes.data || [],
+          commentCount: commentsRes.data?.length || 0,
+          showComments: false,
+          newComment: '',
+          isLiked: !!d.isLiked,
+        }
+      } catch {
+        return {
+          ...d,
+          comments: [],
+          commentCount: 0,
+          showComments: false,
+          newComment: '',
+          isLiked: false,
+        }
+      }
+    }),
+  )
+  communityDreams.value = enriched
 }
 
-// 核心改动：仅在社区隐藏（修改 is_shared 状态），不破坏原始记录
 async function hideFromCommunity(id) {
-  if (!confirm('确定要在社区隐藏这条梦境吗？隐藏后它将只保留在你的【我的梦境】列表中。')) return
+  if (!confirm('确定要在社区隐藏这条梦境吗？隐藏后它将只保留在你的我的梦境列表中。')) return
   try {
-    await api.delete(`/community/dreams/${id}`) 
+    await api.delete(`/community/dreams/${id}`)
     await openCommunity()
-    await loadDreams() 
+    await loadDreams()
     message.value = '已成功从社区隐藏'
   } catch (err) {
     showError('操作失败')
   }
 }
 
-// 乐观交互：共鸣点赞
 async function likeDream(dream) {
-  dream.isLiked = !dream.isLiked
-  dream.likes = (dream.likes || 0) + (dream.isLiked ? 1 : -1)
+  const next = !dream.isLiked
   try {
-    await api.post(`/community/dreams/${dream.id}/like`, { isLiked: dream.isLiked })
-  } catch (err) { console.warn('演示模式：后端点赞接口未连通') }
+    const { data } = await api.post(`/community/dreams/${dream.id}/like`, { isLiked: next })
+    dream.isLiked = data.isLiked
+    dream.likes = data.likes
+  } catch (err) {
+    console.warn('点赞异常')
+  }
 }
 
-// 乐观交互：发布评论
 async function submitComment(dream) {
   const content = dream.newComment?.trim()
   if (!content) return
-  
-  const fakeComment = {
-    id: Date.now(), 
-    username: user.value.username || '当前用户',
-    content: content
-  }
-  if (!dream.comments) dream.comments = []
-  dream.comments.push(fakeComment)
-  dream.newComment = '' 
-
   try {
     const { data } = await api.post(`/community/dreams/${dream.id}/comments`, { content })
-    Object.assign(fakeComment, data)
-  } catch (err) { console.warn('演示模式：后端评论接口未连通') }
+    if (!dream.comments) dream.comments = []
+    dream.comments.unshift(data)
+    dream.commentCount = dream.comments.length
+    dream.newComment = ''
+  } catch (err) {
+    showError('评论提交失败')
+  }
 }
 
 async function deleteComment(dream, commentId) {
-  if (!confirm('确定要删除这条违规评论吗？')) return
-  dream.comments = dream.comments.filter(c => c.id !== commentId)
-  try { await api.delete(`/admin/comments/${commentId}`) } catch (err) {}
+  if (!confirm('确定要删除这条评论吗？')) return
+  try {
+    await api.delete(`/admin/comments/${commentId}`)
+    dream.comments = (dream.comments || []).filter((c) => c.id !== commentId)
+    dream.commentCount = dream.comments.length
+  } catch (err) {}
 }
 
-// 监管后台
-async function openAdmin() { view.value = 'admin'; const { data } = await api.get('/admin/community/dreams'); adminDreams.value = data }
-async function hideDream(id) { await api.put(`/admin/community/dreams/${id}/hide`); await openAdmin() }
-async function deleteDream(id) { await api.delete(`/admin/community/dreams/${id}`); await openAdmin() }
-function formatJson(value) { try { return JSON.stringify(JSON.parse(value), null, 2) } catch { return value } }
+async function openAdmin() {
+  view.value = 'admin'
+  const { data } = await api.get('/admin/community/dreams')
+  adminDreams.value = data
+}
+
+async function hideDream(id) {
+  await api.put(`/admin/community/dreams/${id}/hide`)
+  await openAdmin()
+}
+
+async function deleteDream(id) {
+  await api.delete(`/admin/community/dreams/${id}`)
+  await openAdmin()
+}
+
+function formatJson(value) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
+}
 </script>

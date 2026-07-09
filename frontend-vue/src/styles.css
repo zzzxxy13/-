@@ -191,7 +191,31 @@ button.danger:hover { background: rgba(255, 120, 140, 0.25); border-color: #ff99
 .analysis-box { margin-top: 30px; padding: 24px; background: rgba(0, 0, 0, 0.4); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
 .keyword-highlight { color: var(--primary); text-shadow: 0 0 8px rgba(168, 199, 250, 0.4); display: block; margin-bottom: 10px; }
 .analysis-text { line-height: 1.7; color: #d1dcff; margin: 12px 0; }
+.analysis-ai p { margin: 10px 0; }
+.analysis-ai { white-space: normal; }
 pre { background: rgba(0,0,0,0.5); padding: 16px; border-radius: 8px; color: #a8c7fa; overflow-x: auto; font-family: monospace; }
+
+.analysis-status-bar {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px dashed rgba(168, 199, 250, 0.35);
+  border-radius: 10px;
+  background: rgba(168, 199, 250, 0.06);
+}
+.analysis-status-text { color: #bcd2ff; font-size: 13px; margin-bottom: 8px; }
+.analysis-status-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+.analysis-status-progress {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, rgba(168, 199, 250, 0.5), #ffffff);
+  transition: width 0.35s ease;
+}
 
 /* === 幻夜社区核心气泡 === */
 .community-wrap { width: 100%; }
