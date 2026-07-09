@@ -32,6 +32,7 @@ class DreamResponse(BaseModel):
     auditStatus: str
     likes: int = 0
     comments: int = 0
+    isLiked: bool = False
     isAnonymous: bool | None = None
     anonymousName: str | None = None
 
